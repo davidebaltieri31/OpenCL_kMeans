@@ -1,15 +1,25 @@
+/*
+*	OpenCL/SSE/Multithreaded optimized k-means
+*	Copyright 2015 Davide Baltieri
+*	Author Davide Baltieri
+*	License LGPLv3
+*	It would be awesome if you'd let me know if you use this code...
+*/
+
 //stuff
+/* shouldn't be necessary
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <math.h>
+#include <float.h>
 #include <fstream>
+*/
 #include <iostream>
 #include <string>
-#include <float.h>
 #include <vector>
 #include <algorithm>
-//parallel_for stuff
+//parallel_for/multithreading stuff
 #include <ppl.h>
 #include <atomic>
 #include <mutex>
@@ -19,6 +29,7 @@
 
 #include "kmeans.h"
 
+/*----< opencl kernel code >---------------------------------------------------------------*/
 const char* kernel_source = "\
 #ifndef FLT_MAX\n\
 #define FLT_MAX 3.40282347e+38\n\
@@ -66,7 +77,6 @@ kmeans_swap(__global float  *feature,\n\
 		feature_swap[i * npoints + tid] = feature[tid * nfeatures + i];\n\
 }\n\
 ";
-
 
 /*---------------FORWARD DECLARATIONS----------------------------------------------------------*/
 /*----< fast float resqrt >------------------------------------------------------------------------*/
@@ -191,10 +201,6 @@ float rms_err(const std::vector<float>& feature_set, const int nfeatures, const 
 	float  sum_euclid = 0.0;		/* sum of Euclidean distance squares */
 	std::mutex err_sum_mutex;
 	/* calculate and sum the sqaure of euclidean distance*/
-	//for (i = 0; i<npoints; i++) {
-	//	nearest_cluster_index = find_nearest_point(feature_set[i], cluster_centres);
-	//	sum_euclid += euclid_dist_2(feature_set[i], cluster_centres[nearest_cluster_index]);
-	//}
 	Concurrency::parallel_for(0, npoints, [&](size_t i)
 	{
 		const float* pt_data = feature_set.data() + nfeatures * i;
@@ -275,7 +281,7 @@ void kmeans_clustering(const std::vector<float>& feature_set, const int nfeature
 		for (int i = 0; i<nclusters; ++i) {
 			if (new_centers_len[i] > 0) {
 				for (int j = 0; j<nfeatures; ++j) { //TODO use memcpy
-					clusters[i*nfeatures + j] = new_centers[i*nfeatures + j];	/* take average i.e. sum / MOVED INSIDE kmeansOCL*/
+					clusters[i*nfeatures + j] = new_centers[i*nfeatures + j];	/* take average i.e. sum / cluster_membership -> MOVED INSIDE kmeansOCL*/
 				}
 			}
 			else { /* cluster has 0 assigned points, reinitialize with random point */
@@ -363,12 +369,10 @@ int allocate(const int n_points, const int n_features, const int n_clusters, con
 {
 	int sourcesize = strlen(kernel_source);
 	char* source = (char*)kernel_source;
-
 	// OpenCL initialization
 	int use_gpu = 1;
 	if (initialize(use_gpu)) return -1;
-
-	// compile kernel
+	// compile kernel code
 	cl_int err = 0;
 	const char * slist[2] = { source, 0 };
 	cl_program prog = clCreateProgramWithSource(context, 1, slist, NULL, &err);
@@ -382,17 +386,15 @@ int allocate(const int n_points, const int n_features, const int n_clusters, con
 		//	if(err || strstr(log,"warning:") || strstr(log, "error:")) printf("<<<<\n%s\n>>>>\n", log);
 	}
 	if (err != CL_SUCCESS) { printf("ERROR: clBuildProgram() => %d\n", err); return -1; }
-
 	char * kernel_kmeans_c = "kmeans_kernel_c";
 	char * kernel_swap = "kmeans_swap";
-
+	//get/create kernels
 	kernel_s = clCreateKernel(prog, kernel_kmeans_c, &err);
 	if (err != CL_SUCCESS) { printf("ERROR: clCreateKernel() 0 => %d\n", err); return -1; }
 	kernel2 = clCreateKernel(prog, kernel_swap, &err);
 	if (err != CL_SUCCESS) { printf("ERROR: clCreateKernel() 0 => %d\n", err); return -1; }
-
 	clReleaseProgram(prog);
-
+	//create GPU-side buffers
 	d_feature = clCreateBuffer(context, CL_MEM_READ_WRITE, n_points * n_features * sizeof(float), NULL, &err);
 	if (err != CL_SUCCESS) { printf("ERROR: clCreateBuffer d_feature (size:%d) => %d\n", n_points * n_features, err); return -1; }
 	d_feature_swap = clCreateBuffer(context, CL_MEM_READ_WRITE, n_points * n_features * sizeof(float), NULL, &err);
@@ -401,20 +403,20 @@ int allocate(const int n_points, const int n_features, const int n_clusters, con
 	if (err != CL_SUCCESS) { printf("ERROR: clCreateBuffer d_cluster (size:%d) => %d\n", n_clusters * n_features, err); return -1; }
 	d_membership = clCreateBuffer(context, CL_MEM_READ_WRITE, n_points * sizeof(int), NULL, &err);
 	if (err != CL_SUCCESS) { printf("ERROR: clCreateBuffer d_membership (size:%d) => %d\n", n_points, err); return -1; }
-
-	//write buffers
+	//write point set buffer
 	err = clEnqueueWriteBuffer(cmd_queue, d_feature, 1, 0, n_points * n_features * sizeof(float), (char*)feature.data(), 0, 0, 0);
 	if (err != CL_SUCCESS) { printf("ERROR: clEnqueueWriteBuffer d_feature (size:%d) => %d\n", n_points * n_features, err); return -1; }
-
+	//execute swap kernel 
+	//i still have no idea why i have to swap data. But if i don't opencl crash on kmeans kernel execution
+	//probably something to do with memory alignment?
 	clSetKernelArg(kernel2, 0, sizeof(void *), (void*)&d_feature);
 	clSetKernelArg(kernel2, 1, sizeof(void *), (void*)&d_feature_swap);
 	clSetKernelArg(kernel2, 2, sizeof(cl_int), (void*)&n_points);
 	clSetKernelArg(kernel2, 3, sizeof(cl_int), (void*)&n_features);
-
 	size_t global_work[3] = { n_points, 1, 1 };
 	err = clEnqueueNDRangeKernel(cmd_queue, kernel2, 1, NULL, global_work, NULL, 0, 0, 0);
 	if (err != CL_SUCCESS) { printf("ERROR: clEnqueueNDRangeKernel()=>%d failed\n", err); return -1; }
-
+	//malloc membership output buffer
 	membership_OCL = (int*)malloc(n_points * sizeof(int));
 	return 1;
 }
@@ -426,7 +428,6 @@ void deallocateMemory()
 	clReleaseMemObject(d_cluster);
 	clReleaseMemObject(d_membership);
 	free(membership_OCL);
-
 }
 /*----< kmeansOCL: a single kmeans iteration via OpenCL >-------------------------------------------*/
 int	kmeansOCL(const std::vector<float>& feature_set, const int n_features, const int n_points, const int n_clusters, std::vector<int>& membership, const std::vector<float>& clusters, std::vector<int>& new_centers_len, std::vector<float>& new_centers)
@@ -468,7 +469,7 @@ int	kmeansOCL(const std::vector<float>& feature_set, const int n_features, const
 	}
 	new_centers.assign(n_clusters*n_features, 0.0f);
 	//compute actual centers
-	for (int i = 0; i < n_points; ++i) { // TODO can be parallelized?
+	for (int i = 0; i < n_points; ++i) { // TODO can be efficiently parallelized?
 		int cluster_id = membership[i];
 		if (new_centers_len[cluster_id] > 0) {
 			for (int j = 0; j < n_features; ++j) {
@@ -518,7 +519,7 @@ int cluster(const int npoints, const int nfeatures, const std::vector<float>& fe
 					index = i;						//update number of iteration to reach best RMSE
 					cluster_centres.swap(tmp_cluster_centres);
 					chosen_membership.swap(membership);
-					/*search if some clusters have 0 membersm
+					/*search if some clusters have 0 members
 					split bigger cluster and ovewrite the zero one
 					do only if not last external loop and if activated*/
 					//TODO parallelize?
