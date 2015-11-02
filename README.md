@@ -1,8 +1,18 @@
-# OpenCL_kMeans
-*	OpenCL/SSE/Multithreaded optimized k-means
-*	Author Davide Baltieri
-*	License LGPLv3
-*	It would be awesome if you'd let me know if you use this code...
+##OpenCL/SSE/Multithreaded optimized k-means<br>
+
+Author Davide Baltieri<br>
+License LGPLv3<br>
+It would be awesome if you'd let me know if you use this code...<br>
+<br>
+
+##Currently only for Windows/Visual Studio
+
+* Requirese Microsoft's Parallel Patterns Library
+* Requires SSE
+* Requires OpenCL libs (Available with the NVIDIA CUDA Sdk or ATI equivalent)<br>
+
+ 
+##Interface:
 
 int cluster(&emsp;int&emsp;npoints,&emsp;&emsp;<code>/ number of data points /</code><br>
 &emsp;&emsp;&emsp;&emsp;&emsp;&emsp;int&emsp;nfeatures,&emsp;&emsp;<code>/ number of attributes for each point /</code> <br>
@@ -23,10 +33,5 @@ int cluster(&emsp;int&emsp;npoints,&emsp;&emsp;<code>/ number of data points /</
 );
 <br>
 Returns number of iteration to reach best cluster set.
-<br>
-Currently only for Windows/Visual Studio
--Requirese Microsoft's Parallel Patterns Library
--Requires SSE
--Requires OpenCL libs (Available with the NVIDIA CUDA Sdk or ATI equivalent)
 
 
