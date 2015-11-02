@@ -1,5 +1,8 @@
 # OpenCL_kMeans
-OpenCL based k-Means clustering
+*	OpenCL/SSE/Multithreaded optimized k-means
+*	Author Davide Baltieri
+*	License LGPLv3
+*	It would be awesome if you'd let me know if you use this code...
 
 int cluster(&emsp;int&emsp;npoints,&emsp;&emsp;<code>/ number of data points /</code><br>
 &emsp;&emsp;&emsp;&emsp;&emsp;&emsp;int&emsp;nfeatures,&emsp;&emsp;<code>/ number of attributes for each point /</code> <br>
