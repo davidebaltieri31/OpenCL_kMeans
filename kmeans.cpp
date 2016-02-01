@@ -239,9 +239,7 @@ void kmeans_clustering(const std::vector<float>& feature_set, const int nfeature
 		/* randomly pick cluster centers */
 		for (int i = 0; i < nclusters && initial_points >= 0; ++i) {
 			int n = (int)rand() % initial_points;
-			for (int j = 0; j < nfeatures; ++j) {
-				clusters[i*nfeatures + j] = feature_set[initial[n] * nfeatures +j];	// remapped
-			}
+			memcpy(clusters.data() + i * nfeatures, feature_set.data() + initial[n] * nfeatures, sizeof(float)*nfeatures);
 			/* swap the selected index to the end (not really necessary, could just move the end up) */
 			int temp = initial[n];
 			initial[n] = initial[initial_points - 1];
@@ -251,9 +249,8 @@ void kmeans_clustering(const std::vector<float>& feature_set, const int nfeature
 	}
 	else {
 		for (int i = 0; i < nclusters; ++i) {
-			for (int j = 0; j < nfeatures; ++j) {
-				clusters[i*nfeatures + j] = initial_clusters[i*nfeatures + j];	// reuse input centers
-			}
+			// reuse input centers
+			memcpy(clusters.data() + i * nfeatures, initial_clusters.data() + i * nfeatures, sizeof(float)*nfeatures);
 		}
 	}
 	/* initialize the membership to -1 for all */
@@ -280,16 +277,12 @@ void kmeans_clustering(const std::vector<float>& feature_set, const int nfeature
 		/* replace old cluster centers with new_centers */
 		for (int i = 0; i<nclusters; ++i) {
 			if (new_centers_len[i] > 0) {
-				for (int j = 0; j<nfeatures; ++j) { //TODO use memcpy
-					clusters[i*nfeatures + j] = new_centers[i*nfeatures + j];	/* take average i.e. sum / cluster_membership -> MOVED INSIDE kmeansOCL*/
-				}
+				memcpy(clusters.data() + i * nfeatures, new_centers.data() + i * nfeatures, sizeof(float)*nfeatures);
 			}
 			else { /* cluster has 0 assigned points, reinitialize with random point */
 				float sum = 0.0f;
 				int n = (int)rand() % initial_points;
-				for (int j = 0; j < nfeatures; ++j) {
-					clusters[i*nfeatures + j] = feature_set[initial[n] * nfeatures + j];	
-				}
+				memcpy(clusters.data() + i * nfeatures, feature_set.data() + initial[n] * nfeatures, sizeof(float)*nfeatures);
 				int temp = initial[n];
 				initial[n] = initial[initial_points - 1];
 				initial[initial_points - 1] = temp;
